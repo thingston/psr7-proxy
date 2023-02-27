@@ -3,24 +3,27 @@
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\RequestOptions;
+use Laminas\Diactoros\Response;
 use Laminas\Diactoros\ServerRequestFactory;
 use Laminas\Diactoros\Uri;
 use Laminas\HttpHandlerRunner\Emitter\SapiEmitter;
+use Monolog\Handler\RotatingFileHandler;
+use Monolog\Logger;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-define('REMOTE_HOST', 'https://httpbin.org');
+define('BASE_URL', 'https://httpbin.org');
+define('LOGGER_NAME', 'logger');
+define('LOGGER_FILE', __DIR__ . '/../var/log/error');
 
 $request = ServerRequestFactory::fromGlobals();
 
-$uri = (new Uri(REMOTE_HOST))
+$uri = (new Uri(BASE_URL))
         ->withPath($request->getUri()->getPath())
         ->withQuery($request->getUri()->getQuery());
 
 $options = [
-    RequestOptions::HEADERS => [
-        'Accept' => 'application/json',
-    ],
+    RequestOptions::HEADERS => $request->getHeaders(),
     RequestOptions::HTTP_ERRORS => false,
 ];
 
@@ -30,8 +33,12 @@ if (0 < $request->getBody()->getSize()) {
 
 try {
     $response = (new Client())->request($request->getMethod(), $uri, $options);
-} catch (ClientException $e) {
-    $response = $e->hasResponse() ? $e->getResponse() : new \Laminas\Diactoros\Response\Response($e->getMessage(), 500);
+} catch (Throwable $e) {
+    (new Logger(LOGGER_NAME, [new RotatingFileHandler(LOGGER_FILE)]))->error($e->getMessage(), []);
+
+    $response = $e instanceof ClientException && $e->hasResponse()
+        ? $e->getResponse()
+        : new Response($e->getMessage(), 500);
 }
 
 (new SapiEmitter())->emit($response);
